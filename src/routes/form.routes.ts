@@ -15,7 +15,7 @@ import Submission from '../db/models/submission';
 import { validateSubmission, generateFieldKey } from '../utils/validator/submission.validator';
 import { generateCSV } from '../utils/csvExporter';
 
-const DOMAIN = process.env.APP_DOMAIN || 'http://localhost:3000';
+const DOMAIN = process.env.APP_DOMAIN || 'http://localhost:4000';
 
 interface FormBody {
   name: string;
