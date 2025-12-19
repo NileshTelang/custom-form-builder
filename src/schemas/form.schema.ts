@@ -32,12 +32,13 @@ const errorResponses = {
 const fieldSchema = {
     type: 'object',
     additionalProperties: false,
-    required: ['label', 'required', 'fieldType'],
+    required: ['label', 'required', 'fieldType', 'position'],
     properties: {
         label: { type: 'string', minLength: 1, maxLength: 255 },
         required: { type: 'boolean' },
         placeholder: { type: 'string', minLength: 1, maxLength: 255 },
         helpText: { type: 'string', minLength: 1, maxLength: 255 },
+        position: { type: 'string', pattern: '^[A-Z][1-4]$' }, // Grid position: A1-Z4
         fieldType: {
             type: 'string',
             enum: [
@@ -78,8 +79,10 @@ const fieldSchema = {
                 properties: {
                     fieldType: { enum: ['single-line-text', 'textarea'] },
                 },
+                required: ['fieldType'],
             },
             then: {
+                required: ['validation'],
                 properties: {
                     validation: {
                         type: 'object',
@@ -102,8 +105,10 @@ const fieldSchema = {
                 properties: {
                     fieldType: { const: 'number' },
                 },
+                required: ['fieldType'],
             },
             then: {
+                required: ['validation'],
                 properties: {
                     validation: {
                         type: 'object',
@@ -126,8 +131,10 @@ const fieldSchema = {
                 properties: {
                     fieldType: { const: 'email' },
                 },
+                required: ['fieldType'],
             },
             then: {
+                required: ['validation'],
                 properties: {
                     validation: {
                         type: 'object',
@@ -240,6 +247,12 @@ export const editFormSchema = {
 
 // List forms schema
 export const listFormsSchema = {
+    querystring: {
+        type: 'object',
+        properties: {
+            formUrl: { type: 'string' }, // Search by form URL (converted to hash for lookup)
+        },
+    },
     response: {
         200: {
             type: 'object',
@@ -342,6 +355,8 @@ export const listSubmissionsSchema = {
             from: { type: 'string' }, // ISO date string
             to: { type: 'string' },   // ISO date string
             export: { type: 'boolean' },
+            page: { type: 'number', minimum: 1, default: 1 },
+            limit: { type: 'number', minimum: 1, maximum: 100, default: 50 },
         },
     },
     response: {
@@ -363,6 +378,9 @@ export const listSubmissionsSchema = {
                     },
                 },
                 total: { type: 'number' },
+                page: { type: 'number' },
+                limit: { type: 'number' },
+                totalPages: { type: 'number' },
             },
         },
         ...errorResponses,

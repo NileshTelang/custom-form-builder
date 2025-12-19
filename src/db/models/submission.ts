@@ -12,6 +12,7 @@ const submissionSchema = new mongoose.Schema(
 );
 
 submissionSchema.index({ formId: 1, submittedAt: -1 });
+submissionSchema.index({ formId: 1, formVersion: 1, submittedAt: -1 }); // Compound index for optimized filtering
 submissionSchema.index({ slug: 1 });
 
 export default mongoose.model('Submission', submissionSchema);

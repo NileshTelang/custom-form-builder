@@ -13,6 +13,8 @@ import {
 import FormDefinition from '../db/models/formDefinition';
 import Submission from '../db/models/submission';
 import { validateSubmission, generateFieldKey } from '../utils/validator/submission.validator';
+import { validateFieldPositions } from '../utils/validator/position.validator';
+import { generateUrlHash } from '../utils/urlHash';
 import { generateCSV } from '../utils/csvExporter';
 
 const DOMAIN = process.env.APP_DOMAIN || 'http://localhost:4000';
@@ -35,6 +37,8 @@ interface SubmissionQuery {
   from?: string;
   to?: string;
   export?: boolean;
+  page?: number;
+  limit?: number;
 }
 
 export async function formRoutes(fastify: FastifyInstance) {
@@ -51,14 +55,26 @@ export async function formRoutes(fastify: FastifyInstance) {
         const { name, description, fields } = req.body;
         const userEmail = req.headers['x-user-email'] as string;
 
+        // Validate field positions (uniqueness and contiguity)
+        const positionValidation = validateFieldPositions(fields);
+        if (!positionValidation.valid) {
+          return reply.status(400).send({
+            statusCode: 400,
+            error: 'Position Validation Error',
+            message: positionValidation.errors.join(', '),
+          });
+        }
+
         const formId = uuidv4();
         const slug = nanoid(10);
         const formUrl = `${DOMAIN}/forms/${slug}`;
+        const urlHash = generateUrlHash(formUrl);
 
         const form = new FormDefinition({
           formId,
           slug,
           formUrl,
+          urlHash,
           name,
           description,
           fields,
@@ -100,6 +116,16 @@ export async function formRoutes(fastify: FastifyInstance) {
         const { name, description, fields } = req.body;
         const userEmail = req.headers['x-user-email'] as string;
 
+        // Validate field positions (uniqueness and contiguity)
+        const positionValidation = validateFieldPositions(fields);
+        if (!positionValidation.valid) {
+          return reply.status(400).send({
+            statusCode: 400,
+            error: 'Position Validation Error',
+            message: positionValidation.errors.join(', '),
+          });
+        }
+
         // Find the latest version of this form
         const existingForm = await FormDefinition.findOne({ formId })
           .sort({ version: -1 })
@@ -122,11 +148,12 @@ export async function formRoutes(fastify: FastifyInstance) {
 
         const newVersion = (existingForm.version as number) + 1;
 
-        // Create new version document
+        // Create new version document (preserve urlHash from existing form)
         const newForm = new FormDefinition({
           formId: existingForm.formId,
           slug: existingForm.slug,
           formUrl: existingForm.formUrl,
+          urlHash: existingForm.urlHash,
           name,
           description,
           fields,
@@ -158,16 +185,25 @@ export async function formRoutes(fastify: FastifyInstance) {
    * ─────────────────────────────────────────
    * GET /api/v1/forms - List all forms for user
    * (each version is listed separately)
+   * Supports filtering by formUrl using urlHash index
    * ─────────────────────────────────────────
    */
-  fastify.get(
+  fastify.get<{ Querystring: { formUrl?: string } }>(
     '/api/v1/forms',
     { preHandler: [authorize], schema: listFormsSchema },
     async (req, reply) => {
       try {
         const userEmail = req.headers['x-user-email'] as string;
+        const { formUrl } = req.query;
 
-        const forms = await FormDefinition.find({ createdBy: userEmail })
+        // Build query with user filter and optional urlHash filter
+        const query: any = { createdBy: userEmail };
+        if (formUrl) {
+          const urlHash = generateUrlHash(formUrl);
+          query.urlHash = urlHash;
+        }
+
+        const forms = await FormDefinition.find(query)
           .sort({ formId: 1, version: -1 })
           .select('formId slug name description version formUrl createdAt updatedAt')
           .lean();
@@ -317,7 +353,7 @@ export async function formRoutes(fastify: FastifyInstance) {
   /**
    * ─────────────────────────────────────────
    * GET /api/v1/forms/:formId/submissions - List submissions
-   * Supports filtering by date range and CSV export
+   * Supports filtering by date range, pagination, and CSV export
    * ─────────────────────────────────────────
    */
   fastify.get<{ Params: FormParams; Querystring: SubmissionQuery }>(
@@ -326,7 +362,7 @@ export async function formRoutes(fastify: FastifyInstance) {
     async (req, reply) => {
       try {
         const { formId } = req.params;
-        const { from, to, export: exportCSV } = req.query;
+        const { from, to, export: exportCSV, page = 1, limit = 50 } = req.query;
         const userEmail = req.headers['x-user-email'] as string;
 
         // Verify form exists and user owns it
@@ -361,15 +397,15 @@ export async function formRoutes(fastify: FastifyInstance) {
           }
         }
 
-        const submissions = await Submission.find(query)
-          .sort({ submittedAt: -1 })
-          .lean();
-
-        // If export is requested, return CSV file
+        // If export is requested, return all submissions as CSV (no pagination)
         if (exportCSV) {
+          const allSubmissions = await Submission.find(query)
+            .sort({ submittedAt: -1 })
+            .lean();
+
           const csvContent = generateCSV(
             form.fields as any[],
-            submissions.map((s: any) => ({
+            allSubmissions.map((s: any) => ({
               submittedAt: s.submittedAt,
               data: s.data,
             }))
@@ -381,6 +417,18 @@ export async function formRoutes(fastify: FastifyInstance) {
             .send(csvContent);
         }
 
+        // Get total count for pagination
+        const total = await Submission.countDocuments(query);
+        const totalPages = Math.ceil(total / limit);
+        const skip = (page - 1) * limit;
+
+        // Fetch paginated submissions
+        const submissions = await Submission.find(query)
+          .sort({ submittedAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean();
+
         return reply.status(200).send({
           status: true,
           submissions: submissions.map((s: any) => ({
@@ -389,7 +437,10 @@ export async function formRoutes(fastify: FastifyInstance) {
             data: s.data,
             submittedAt: s.submittedAt?.toISOString(),
           })),
-          total: submissions.length,
+          total,
+          page,
+          limit,
+          totalPages,
         });
       } catch (err) {
         console.error('List submissions API Error:', err);
