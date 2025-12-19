@@ -19,6 +19,25 @@ import { generateCSV } from '../utils/csvExporter';
 
 const DOMAIN = process.env.APP_DOMAIN || 'http://localhost:5173';
 
+// ─────────────────────────────────────────
+// In-memory cache for form definitions (optimizes high-throughput submissions)
+// ─────────────────────────────────────────
+const formCache = new Map<string, { form: any; expiry: number }>();
+const CACHE_TTL_MS = 60 * 1000; // 1 minute cache
+
+function getCachedForm(slug: string): any | null {
+  const cached = formCache.get(slug);
+  if (cached && cached.expiry > Date.now()) {
+    return cached.form;
+  }
+  formCache.delete(slug);
+  return null;
+}
+
+function setCachedForm(slug: string, form: any): void {
+  formCache.set(slug, { form, expiry: Date.now() + CACHE_TTL_MS });
+}
+
 interface FormBody {
   name: string;
   description: string;
@@ -314,10 +333,17 @@ export async function formRoutes(fastify: FastifyInstance) {
         const { slug } = req.params;
         const submissionData = req.body;
 
-        // Get the latest version of the form
-        const form = await FormDefinition.findOne({ slug })
-          .sort({ version: -1 })
-          .lean();
+        // Try cache first, then DB (optimizes high-throughput scenarios)
+        let form = getCachedForm(slug);
+        if (!form) {
+          form = await FormDefinition.findOne({ slug })
+            .sort({ version: -1 })
+            .lean();
+
+          if (form) {
+            setCachedForm(slug, form);
+          }
+        }
 
         if (!form) {
           return reply.status(404).send({
@@ -325,9 +351,6 @@ export async function formRoutes(fastify: FastifyInstance) {
             error: 'Form not found',
           });
         }
-
-        console.log('[BE] Received submission data:', JSON.stringify(submissionData));
-        console.log('[BE] Form fields:', (form.fields as any[]).map((f: any) => ({ label: f.label, key: generateFieldKey(f.label) })));
 
         // Validate submission against form field definitions
         const validationResult = validateSubmission(form.fields as any[], submissionData);
@@ -349,8 +372,6 @@ export async function formRoutes(fastify: FastifyInstance) {
           }
         }
 
-        console.log('[BE] Normalized data to save:', JSON.stringify(normalizedData));
-
         const submission = new Submission({
           formId: form.formId,
           formVersion: form.version,
@@ -360,7 +381,6 @@ export async function formRoutes(fastify: FastifyInstance) {
         });
 
         await submission.save();
-        console.log('[BE] Submission saved successfully with data:', JSON.stringify(submission.data));
 
         return reply.status(201).send({
           status: true,
