@@ -1,14 +1,27 @@
 const TOTAL_REQUESTS = 2000;
-const URL = 'http://localhost:3000/forms/mFipuEwqsN/submit';
-const PAYLOAD = { firstname: "god", new_email_field: "god@gevme.com", age: 20 };
+const URL = 'http://localhost:3000/forms/IPOk4aQwhh/submit';
+const PAYLOAD = { fistname: "stats", new_email_field: "stats@sg.com", age: 20 };
 
 async function sendRequest() {
   const response = await fetch(URL, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
       'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'en-GB,en;q=0.5',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Content-Type': 'application/json',
       'Origin': 'http://localhost:5173',
+      'Pragma': 'no-cache',
+      'Referer': 'http://localhost:5173/',
+      'Sec-Fetch-Dest': 'empty',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Site': 'same-site',
+      'Sec-GPC': '1',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
+      'sec-ch-ua': '"Brave";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"macOS"',
     },
     body: JSON.stringify(PAYLOAD),
   });
@@ -43,6 +56,7 @@ async function main() {
         failed++;
       }
     } else {
+      console.log(result.reason);
       failed++;
       statusCodes['error'] = (statusCodes['error'] || 0) + 1;
     }
